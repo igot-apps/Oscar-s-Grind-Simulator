@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oscar's Grind Simulator</title>
+<style>
+:root {
+  --green:#29a746; --red:#d63c3c; --gray:#777; --bg:#f5f6fa; --card:#fff; --accent:#276ef1;
+}
+body { font-family: Arial, sans-serif; background: var(--bg); margin:0; padding:30px; display:flex; flex-direction:column; align-items:center; }
+h1 { font-weight:500; margin-bottom:15px; }
+.card { background: var(--card); padding:20px; width:360px; border-radius:12px; box-shadow:0px 4px 12px rgba(0,0,0,0.08); margin-bottom:20px; }
+input { width:95%; font-size:16px; padding:10px; border:1px solid #ccc; border-radius:6px; margin:7px 0; }
+.btn { width:48%; padding:12px; font-size:16px; border:none; border-radius:6px; cursor:pointer; margin-top:10px; transition:.2s; }
+.btn-green { background: var(--green); color:#fff; } 
+.btn-red { background: var(--red); color:#fff; } 
+.btn-blue { background: var(--accent); color:#fff; width:100%; margin-top:12px; } 
+.btn-clear { background: var(--gray); color:#fff; width:100%; margin-top:12px; } 
+.btn:hover { opacity:.9; }
+.stat { display:flex; justify-content:space-between; margin:8px 0; font-size:17px; }
+.value-positive { color:var(--green); font-weight:bold; }
+.value-negative { color:var(--red); font-weight:bold; }
+.flex { display:flex; justify-content:space-between; gap:10px; }
+#log { max-height:200px; overflow-y:auto; font-size:14px; background:#eee; padding:10px; border-radius:6px; margin-top:10px; }
+</style>
+</head>
+<body>
+
+<h1>Oscar's Grind Simulator</h1>
+
+<div id="setup" class="card">
+  <strong>Settings</strong>
+  <input id="initialBalance" type="number" placeholder="Initial Balance (e.g. 1000)">
+  <input id="targetPercent" type="number" placeholder="Cycle Target % (e.g. 5)">
+  <input id="stakePercent" type="number" placeholder="Base Stake % of Bankroll (e.g. 2)">
+  <button class="btn btn-blue" onclick="startSimulation()">Start Simulation</button>
+</div>
+
+<div id="game" style="display:none; width:100%; max-width:360px;">
+  <div class="card">
+    <strong>Cycle Info</strong>
+    <div class="stat">Current Stake: <span id="stake"></span></div>
+    <div class="stat">Cycle Profit: <span id="cycleProfit"></span></div>
+    <div class="stat">Cycle Target: <span id="cycleTarget"></span></div>
+    <div class="stat">Remaining to Target: <span id="remainingTarget"></span></div>
+  </div>
+
+  <div class="card">
+    <strong>Account</strong>
+    <div class="stat">Bankroll: <span id="balance"></span></div>
+    <div class="stat">Cycle #: <span id="cycleNumber"></span></div>
+    <div class="stat">Wins: <span id="wins"></span></div>
+    <div class="stat">Losses: <span id="losses"></span></div>
+  </div>
+
+  <div class="card">
+    <strong>Instructor</strong>
+    <div id="instructor">Next stake: </div>
+  </div>
+
+  <div class="flex">
+    <button class="btn btn-green" onclick="recordWin()">WIN</button>
+    <button class="btn btn-red" onclick="recordLoss()">LOSS</button>
+  </div>
+
+  <button class="btn btn-clear" onclick="resetSimulation()">Reset Simulation</button>
+
+  <div class="card">
+    <strong>Persistent Log</strong>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+let state = {
+  bankroll:0, stake:0, unit:0, cycleProfit:0, cycleTarget:0, targetPercent:0, stakePercent:0, wins:0, losses:0, cycleNumber:1, history:[]
+};
+
+function saveState(){ localStorage.setItem("grindState", JSON.stringify(state)); }
+function loadState(){
+  let saved = localStorage.getItem("grindState");
+  if(saved){ state = JSON.parse(saved); updateUI(); updateLog(); document.getElementById("setup").style.display="none"; document.getElementById("game").style.display="block"; }
+}
+
+function startSimulation(){
+  let b = parseFloat(document.getElementById("initialBalance").value);
+  let t = parseFloat(document.getElementById("targetPercent").value);
+  let s = parseFloat(document.getElementById("stakePercent").value);
+  if(!b || !t || !s){ alert("Enter valid numbers"); return; }
+  state.bankroll = b;
+  state.targetPercent = t/100;
+  state.stakePercent = s/100;
+  state.cycleTarget = state.bankroll*state.targetPercent;
+  state.stake = state.bankroll*state.stakePercent;
+  state.unit = state.stake;
+  state.cycleProfit=0; state.wins=0; state.losses=0; state.cycleNumber=1; state.history=[];
+  document.getElementById("setup").style.display="none";
+  document.getElementById("game").style.display="block";
+  updateUI(); updateInstructor(); updateLog(); saveState();
+}
+
+function recordWin(){
+  state.bankroll += state.stake;
+  state.cycleProfit += state.stake;
+  state.wins++;
+  state.stake += state.unit; // Fixed +1 unit increase
+  checkCycleEnd();
+  updateUI(); updateInstructor(); updateLog(); saveState();
+}
+
+function recordLoss(){
+  state.bankroll -= state.stake;
+  state.cycleProfit -= state.stake;
+  state.losses++;
+  // stake unchanged
+  updateUI(); updateInstructor(); updateLog(); saveState();
+}
+
+function checkCycleEnd(){
+  if(state.cycleProfit >= state.cycleTarget){
+    // log cycle
+    state.history.push({
+      cycle: state.cycleNumber,
+      startBankroll: (state.bankroll - state.cycleProfit).toFixed(2),
+      endBankroll: state.bankroll.toFixed(2),
+      target: state.cycleTarget.toFixed(2),
+      cycleProfit: state.cycleProfit.toFixed(2),
+      wins: state.wins,
+      losses: state.losses,
+      date: new Date().toLocaleString()
+    });
+    state.cycleNumber++;
+    state.cycleProfit=0;
+    state.wins=0; state.losses=0;
+    state.cycleTarget = state.bankroll*state.targetPercent;
+    state.stake = state.bankroll*state.stakePercent;
+    state.unit = state.stake;
+    alert("Cycle Complete! New Cycle Started.\nNew Stake: "+state.stake.toFixed(2)+" Target: "+state.cycleTarget.toFixed(2));
+  }
+}
+
+function updateUI(){
+  document.getElementById("balance").textContent = state.bankroll.toFixed(2);
+  document.getElementById("stake").textContent = state.stake.toFixed(2);
+  document.getElementById("cycleProfit").textContent = state.cycleProfit.toFixed(2);
+  document.getElementById("cycleTarget").textContent = state.cycleTarget.toFixed(2);
+  document.getElementById("remainingTarget").textContent = (state.cycleTarget - state.cycleProfit).toFixed(2);
+  document.getElementById("wins").textContent = state.wins;
+  document.getElementById("losses").textContent = state.losses;
+  document.getElementById("cycleNumber").textContent = state.cycleNumber;
+}
+
+function updateInstructor(){
+  let nextStake = state.stake;
+  let message = `Next Stake: ${nextStake.toFixed(2)}\n`;
+  message += `Unit = ${state.unit.toFixed(2)}\n`;
+  message += `Remaining to cycle target: ${(state.cycleTarget - state.cycleProfit).toFixed(2)}`;
+  document.getElementById("instructor").textContent = message;
+}
+
+function updateLog(){
+  let logEl = document.getElementById("log");
+  logEl.innerHTML="";
+  state.history.forEach(c=>{
+    let div = document.createElement("div");
+    div.textContent = `Cycle ${c.cycle} | Start: ${c.startBankroll} → End: ${c.endBankroll} | Profit: ${c.cycleProfit} | Wins: ${c.wins}, Losses: ${c.losses} | Target: ${c.target} | ${c.date}`;
+    logEl.appendChild(div);
+  });
+}
+
+function resetSimulation(){
+  if(confirm("Clear everything and restart?")){
+    localStorage.removeItem("grindState");
+    location.reload();
+  }
+}
+
+loadState();
+</script>
+
+</body>
+</html>
